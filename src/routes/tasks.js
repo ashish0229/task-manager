@@ -19,14 +19,20 @@ const taskValidation = [
 // GET /api/projects/:projectId/tasks
 router.get('/', async (req, res) => {
   try {
+    const projectId = parseInt(req.params.projectId, 10);
+    if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+
     const { status, priority, assigned_to } = req.query;
     let conditions = ['t.project_id = $1'];
-    let params = [req.params.projectId];
+    let params = [projectId];
     let i = 2;
 
     if (status) { conditions.push(`t.status = $${i++}`); params.push(status); }
     if (priority) { conditions.push(`t.priority = $${i++}`); params.push(priority); }
-    if (assigned_to) { conditions.push(`t.assigned_to = $${i++}`); params.push(assigned_to); }
+    if (assigned_to) {
+      const assignedToInt = parseInt(assigned_to, 10);
+      if (!isNaN(assignedToInt)) { conditions.push(`t.assigned_to = $${i++}`); params.push(assignedToInt); }
+    }
 
     const { rows } = await pool.query(`
       SELECT t.*,
@@ -52,12 +58,18 @@ router.post('/', taskValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const { title, description = '', status = 'todo', priority = 'medium', due_date, assigned_to } = req.body;
+  const projectId = parseInt(req.params.projectId, 10);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+
+  const { title, description = '', status = 'todo', priority = 'medium', due_date } = req.body;
+  const assigned_to = req.body.assigned_to ? parseInt(req.body.assigned_to, 10) : null;
+  if (req.body.assigned_to && isNaN(assigned_to)) return res.status(400).json({ error: 'Invalid assigned_to' });
+
   try {
     if (assigned_to) {
       const check = await pool.query(
         'SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2',
-        [req.params.projectId, assigned_to]
+        [projectId, assigned_to]
       );
       if (!check.rows.length) return res.status(400).json({ error: 'Assigned user is not a project member' });
     }
@@ -65,7 +77,7 @@ router.post('/', taskValidation, async (req, res) => {
     const { rows } = await pool.query(`
       INSERT INTO tasks (project_id, title, description, status, priority, due_date, assigned_to, created_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *
-    `, [req.params.projectId, title, description, status, priority, due_date || null, assigned_to || null, req.user.id]);
+    `, [projectId, title, description, status, priority, due_date || null, assigned_to, req.user.id]);
 
     const full = await pool.query(`
       SELECT t.*, u1.name AS assigned_to_name, u2.name AS created_by_name
@@ -87,16 +99,33 @@ router.put('/:taskId', taskValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const { title, description, status, priority, due_date, assigned_to } = req.body;
+  const projectId = parseInt(req.params.projectId, 10);
+  const taskId = parseInt(req.params.taskId, 10);
+  if (isNaN(projectId) || isNaN(taskId)) return res.status(400).json({ error: 'Invalid ID' });
+
+  const { title, description, status, priority, due_date } = req.body;
+  const assigned_to = req.body.assigned_to ? parseInt(req.body.assigned_to, 10) : null;
+  if (req.body.assigned_to && isNaN(assigned_to)) return res.status(400).json({ error: 'Invalid assigned_to' });
+
   try {
-    const task = await pool.query('SELECT * FROM tasks WHERE id = $1 AND project_id = $2', [req.params.taskId, req.params.projectId]);
+    const task = await pool.query(
+      'SELECT * FROM tasks WHERE id = $1 AND project_id = $2',
+      [taskId, projectId]
+    );
     if (!task.rows.length) return res.status(404).json({ error: 'Task not found' });
 
-    const canEdit = req.user.role === 'admin' || req.projectRole === 'admin' || task.rows[0].assigned_to === req.user.id || task.rows[0].created_by === req.user.id;
+    const canEdit =
+      req.user.role === 'admin' ||
+      req.projectRole === 'admin' ||
+      task.rows[0].assigned_to === req.user.id ||
+      task.rows[0].created_by === req.user.id;
     if (!canEdit) return res.status(403).json({ error: 'Cannot edit this task' });
 
     if (assigned_to) {
-      const check = await pool.query('SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2', [req.params.projectId, assigned_to]);
+      const check = await pool.query(
+        'SELECT 1 FROM project_members WHERE project_id = $1 AND user_id = $2',
+        [projectId, assigned_to]
+      );
       if (!check.rows.length) return res.status(400).json({ error: 'Assigned user is not a project member' });
     }
 
@@ -109,11 +138,13 @@ router.put('/:taskId', taskValidation, async (req, res) => {
         due_date = $5,
         assigned_to = $6
       WHERE id = $7 AND project_id = $8 RETURNING *
-    `, [title, description, status, priority, due_date || null, assigned_to || null, req.params.taskId, req.params.projectId]);
+    `, [title, description, status, priority, due_date || null, assigned_to, taskId, projectId]);
 
     const full = await pool.query(`
       SELECT t.*, u1.name AS assigned_to_name, u2.name AS created_by_name
-      FROM tasks t LEFT JOIN users u1 ON t.assigned_to = u1.id LEFT JOIN users u2 ON t.created_by = u2.id
+      FROM tasks t
+      LEFT JOIN users u1 ON t.assigned_to = u1.id
+      LEFT JOIN users u2 ON t.created_by = u2.id
       WHERE t.id = $1
     `, [rows[0].id]);
 
@@ -126,14 +157,24 @@ router.put('/:taskId', taskValidation, async (req, res) => {
 
 // DELETE /api/projects/:projectId/tasks/:taskId
 router.delete('/:taskId', async (req, res) => {
+  const projectId = parseInt(req.params.projectId, 10);
+  const taskId = parseInt(req.params.taskId, 10);
+  if (isNaN(projectId) || isNaN(taskId)) return res.status(400).json({ error: 'Invalid ID' });
+
   try {
-    const task = await pool.query('SELECT * FROM tasks WHERE id = $1 AND project_id = $2', [req.params.taskId, req.params.projectId]);
+    const task = await pool.query(
+      'SELECT * FROM tasks WHERE id = $1 AND project_id = $2',
+      [taskId, projectId]
+    );
     if (!task.rows.length) return res.status(404).json({ error: 'Task not found' });
 
-    const canDelete = req.user.role === 'admin' || req.projectRole === 'admin' || task.rows[0].created_by === req.user.id;
+    const canDelete =
+      req.user.role === 'admin' ||
+      req.projectRole === 'admin' ||
+      task.rows[0].created_by === req.user.id;
     if (!canDelete) return res.status(403).json({ error: 'Cannot delete this task' });
 
-    await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.taskId]);
+    await pool.query('DELETE FROM tasks WHERE id = $1', [taskId]);
     res.json({ message: 'Task deleted' });
   } catch (err) {
     console.error(err);

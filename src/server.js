@@ -33,6 +33,10 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(clientBuild, 'index.html'));
   });
 }
+const dns = require('dns');
+dns.lookup('postgres.railway.internal', (err, address) => {
+  console.log('DNS lookup:', err || address);
+});
 
 // Start server
 const start = async () => {
