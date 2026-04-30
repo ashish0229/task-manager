@@ -189,6 +189,7 @@ export default function ProjectDetail() {
     });
     setTaskModal(null);
   };
+  
 
   const handleDeleteProject = async () => {
     if (!window.confirm(`Delete project "${project.name}"? This cannot be undone.`)) return;
@@ -373,7 +374,7 @@ export default function ProjectDetail() {
       {/* Modals */}
       {taskModal && (
         <TaskModal
-          projectId={id}
+          projectId={parseInt(id, 10)}
           task={taskModal === 'new' ? null : (taskModal?.id ? taskModal : { status: taskModal?.status || 'todo' })}
           onClose={() => setTaskModal(null)}
           onSave={handleSaveTask}
@@ -381,7 +382,7 @@ export default function ProjectDetail() {
       )}
       {memberModal && (
         <AddMemberModal
-          projectId={id}
+          projectId={parseInt(id, 10)}
           onClose={() => setMemberModal(false)}
           onAdded={m => { setProject(p => ({ ...p, members: [...(p.members || []), { ...m, project_role: m.project_role || 'member' }] })); setMemberModal(false); }}
         />

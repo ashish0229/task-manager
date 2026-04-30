@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 
 export default function TaskModal({ projectId, task, onClose, onSave }) {
+  const isEditing = Boolean(task?.id);
   const [members, setMembers] = useState([]);
   const [form, setForm] = useState({
     title: task?.title || '',
@@ -30,11 +31,11 @@ export default function TaskModal({ projectId, task, onClose, onSave }) {
     try {
       const payload = {
         ...form,
-        assigned_to: form.assigned_to || null,
+        assigned_to: form.assigned_to ? parseInt(form.assigned_to, 10) : null,
         due_date: form.due_date || null,
       };
       let saved;
-      if (task) {
+      if (isEditing) {
         saved = await api.updateTask(projectId, task.id, payload);
       } else {
         saved = await api.createTask(projectId, payload);
@@ -53,7 +54,7 @@ export default function TaskModal({ projectId, task, onClose, onSave }) {
         {/* Header */}
         <div style={styles.header}>
           <div>
-            <h2 style={styles.title}>{task ? 'Edit Task' : 'New Task'}</h2>
+            <h2 style={styles.title}>{isEditing ? 'Edit Task' : 'New Task'}</h2>
             <p style={styles.subtitle}>Fill in the details below</p>
           </div>
           <button style={styles.closeBtn} onClick={onClose}>✕</button>
@@ -129,7 +130,7 @@ export default function TaskModal({ projectId, task, onClose, onSave }) {
             <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? <span className="spinner" style={{ width: 16, height: 16 }} /> : null}
-              {task ? 'Save Changes' : 'Create Task'}
+              {isEditing ? 'Save Changes' : 'Create Task'}
             </button>
           </div>
         </form>
